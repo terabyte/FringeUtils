@@ -1,0 +1,5 @@
+build-bin:
+    SHORT:bb
+
+xargs2:
+    SHORT:x2

@@ -1,0 +1,372 @@
+#!/usr/bin/perl
+
+# Copyright (C) 2010   Keith Amling, keith.amling@gmail.com
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+$| = 1;
+
+use strict;
+use warnings;
+
+use Getopt::Long;
+
+my $source_bin;
+my $dest_bin;
+my $force = 0;
+my $dry_run = 0;
+my $quiet = 0;
+my $verbose = 0;
+
+my @options =
+(
+    "s|src|source=s"        => \$source_bin,
+    "d|dst|destination=s"   => \$dest_bin,
+    "f|force!"              => \$force,
+    "n|dry-run!"            => \$dry_run,
+    "q|quiet!"              => \$quiet,
+    "v|verbose!"            => \$verbose,
+    "help!"                 => sub { usage(0); },
+);
+
+GetOptions(@options) || usage(1);
+
+if(!defined($source_bin))
+{
+    die "No source metabin defined";
+}
+
+if($source_bin !~ /^\//)
+{
+    die "Source metabin is not absolute, you will get sad symlinks";
+}
+
+if(!defined($dest_bin))
+{
+    die "No destination bin defined";
+}
+
+# Step 1, read build-bin manifests and sanity check them (only complain if -v)
+my @db;
+{
+    my @authors;
+    opendir(my $metabin_fh, $source_bin) || die "Cannot open $source_bin: $!";
+    while(my $e = readdir($metabin_fh))
+    {
+        if($e eq "." || $e eq "..")
+        {
+            next;
+        }
+        my $p = "$source_bin/$e";
+        if(!-d $p)
+        {
+            if($verbose)
+            {
+                print "Sanity check: found non-directory '$e' in source metabin\n";
+            }
+            next;
+        }
+        push @authors, $e;
+    }
+    closedir($metabin_fh) || die "Cannot close $source_bin: $!";
+
+    for my $author (@authors)
+    {
+        my $db = "$source_bin/$author/.build-bin.db";
+        if(!-f $db)
+        {
+            next;
+        }
+        my %scripts;
+        my $script = undef;
+        open(my $db_fh, "<", $db) || die "Cannot open $db: $!";
+        while(my $l = <$db_fh>)
+        {
+            chomp $l;
+            $l =~ s/#.*//;
+            $l =~ s/^[ \t]*//;
+            $l =~ s/[ \t]*$//;
+            if($l =~ /^(LONG|SHORT):(.*)$/)
+            {
+                my ($type, $aliases) = ($1, $2);
+
+                if(!defined($script))
+                {
+                    if($verbose)
+                    {
+                        print "Sanity check: .build-bin.db for author $author contains alias definition outside of script stanza?\n";
+                    }
+                    next;
+                }
+
+                for my $alias (split(/,/, $aliases))
+                {
+                    $scripts{$script}->{$type}->{$alias} = 1;
+                }
+            }
+            elsif($l =~ /^([^:]*):$/)
+            {
+                $script = $1;
+                $scripts{$script} =
+                {
+                    'LONG' => {},
+                    'SHORT' => {},
+                    'CANON' => {$script => 1},
+                };
+            }
+            elsif($l eq "")
+            {
+                next;
+            }
+            else
+            {
+                if($verbose)
+                {
+                    print "Sanity check: .build-bin.db for author $author contains bogus line: '$l'\n";
+                }
+                next;
+            }
+        }
+        close($db_fh) || die "Cannot close $db: $!";
+
+        for my $script (keys(%scripts))
+        {
+            push @db, [$author, $script, $scripts{$script}];
+        }
+    }
+}
+
+# Step 2, read build-bin directives
+my @directives;
+while(my $l = <>)
+{
+    chomp $l;
+    $l =~ s/#.*//;
+    $l =~ s/^[ \t]*//;
+    $l =~ s/[ \t]*$//;
+
+    if($l eq '')
+    {
+        next;
+    }
+
+    my %matcher =
+    (
+        'ALIAS' => matcher('*'),
+        'AUTHOR' => matcher('*'),
+        'SCRIPT' => matcher('*'),
+        'TYPE' => matcher('CANON'),
+    );
+    my $format = "fringe-AUTHOR-ALIAS";
+    my $continue = 1;
+    for my $arg (split(/,/, $l))
+    {
+        if($arg =~ /^(ALIAS|AUTHOR|SCRIPT|TYPE):(.*)$/)
+        {
+            $matcher{$1} = matcher($2);
+        }
+        elsif($arg =~ /^FORMAT:(.*)$/)
+        {
+            $format = $1;
+        }
+        elsif($arg eq "IGNORE")
+        {
+            $format = undef;
+        }
+        elsif($arg eq "STOP")
+        {
+            $continue = 0;
+        }
+        elsif($arg eq ".")
+        {
+            # honor this as a NOP to allow "." as a line by itself to trigger default rules
+        }
+        else
+        {
+            die "Unknown argument in directive: '$arg'";
+        }
+    }
+    push @directives, [\%matcher, $format, $continue];
+}
+
+# Step 3, interpret directives
+my %map;
+{
+    for my $db (@db)
+    {
+        my ($author, $script, $aliases) = @$db;
+
+        for my $type (keys(%$aliases))
+        {
+            for my $alias (keys(%{$aliases->{$type}}))
+            {
+                for my $directive (@directives)
+                {
+                    my ($matcher, $format, $continue) = @$directive;
+
+                    if(!$matcher->{'AUTHOR'}->($author))
+                    {
+                        next;
+                    }
+                    if(!$matcher->{'SCRIPT'}->($script))
+                    {
+                        next;
+                    }
+                    if(!$matcher->{'TYPE'}->($type))
+                    {
+                        next;
+                    }
+                    if(!$matcher->{'ALIAS'}->($alias))
+                    {
+                        next;
+                    }
+
+                    if(defined($format))
+                    {
+                        my $result_key = $format;
+                        $result_key =~ s/AUTHOR/$author/g;
+                        $result_key =~ s/ALIAS/$alias/g;
+                        my $result_value = "$author/$script";
+
+                        my $result_value_2 = $map{$result_key};
+                        if(defined($result_value_2) && $result_value_2 ne $result_value)
+                        {
+                            die "Collision: both $result_value_2 and $result_value got mapped at $result_key";
+                        }
+
+                        $map{$result_key} = $result_value;
+                    }
+
+                    if(!$continue)
+                    {
+                        last;
+                    }
+                }
+            }
+        }
+    }
+}
+
+# Step 4, compare to FS
+{
+    if(!-d $dest_bin)
+    {
+        unless($quiet)
+        {
+            print "Mkdir $dest_bin...\n";
+        }
+        if(!$dry_run)
+        {
+            (system("mkdir", "-p", "--", $dest_bin) == 0) || die "Could not mkdir $dest_bin";
+        }
+    }
+
+    for my $dest_key (keys(%map))
+    {
+        my $dest_path = "$dest_bin/$dest_key";
+        my $source_value = $map{$dest_key};
+        my $source_path = "$source_bin/$source_value";
+        my $collision = 0;
+        my $already = 0;
+        if(-e "$dest_bin/$dest_key")
+        {
+            $collision = 1;
+            my $link = readlink("$dest_bin/$dest_key");
+            if(defined($link) && $link eq $source_path)
+            {
+                $collision = 0;
+                $already = 1;
+            }
+        }
+
+        if($collision)
+        {
+            if($force)
+            {
+                unless($quiet)
+                {
+                    print "Unlinking collision at $dest_path...\n";
+                }
+                if(!$dry_run)
+                {
+                    unlink($dest_path) || die "Could not unlink collision at $dest_path: $!";
+                }
+            }
+            else
+            {
+                die "Collision at $dest_path.";
+            }
+        }
+
+        if($already)
+        {
+            if($verbose)
+            {
+                print "Skipping already matched $dest_path => $source_path...\n";
+            }
+            next;
+        }
+
+        unless($quiet)
+        {
+            print "Symlinking $dest_path => $source_path...\n";
+        }
+        if(!$dry_run)
+        {
+            symlink $source_path, $dest_path || die "Could not symlink $dest_path => $source_path: $!";
+        }
+    }
+}
+
+sub matcher
+{
+    my $s = shift;
+
+    if($s =~ /^\/(.*)\/$/)
+    {
+        my $re = $1;
+        return sub { return ($_[0] =~ /$re/); };
+    }
+    elsif($s =~ /^\/(.*)\/i$/)
+    {
+        my $re = $1;
+        return sub { return ($_[0] =~ /$re/i); };
+    }
+    elsif($s eq "*")
+    {
+        return sub { return 1; }
+    }
+    else
+    {
+        return sub { return ($_[0] eq $s); };
+    }
+}
+
+sub usage
+{
+    my $ec = shift;
+
+    print <<EOF;
+Usage: $0 <options>
+   -s | --src | --source <dir>        Use this as the source fringeutils metabin directory.
+   -d | --dst | --destination <dir>   Build the bin here.
+   -f | --force                       Unlink pre-existing collisions in destination.
+   -n | --dry-run                     Dry run, only decide what would happen, do not do it.
+   -q | --quiet                       Print nothing unless there is a problem.
+   -v | --verbose                     Be verbose.
+   --help                             Print this help.
+EOF
+
+    exit $ec;
+}
