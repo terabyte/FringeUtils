@@ -1,0 +1,230 @@
+#!/usr/bin/perl
+
+# Copyright (C) 2010   Keith Amling, keith.amling@gmail.com
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+$| = 1;
+
+use strict;
+use warnings;
+
+use File::Temp ('tempdir');
+use FringeUtils::Amling::ForkManager;
+use Getopt::Long;
+
+my $arg_limit;
+my $parallel_limit;
+my $print_stdout = 0;
+my $print_stderr = 0;
+my @before_arg;
+my @after_arg;
+my @after_cmd;
+
+my @options =
+(
+    "j|parallel=i" => \$parallel_limit,
+    "n=i"          => \$arg_limit,
+    "v!"           => \$print_stdout,
+    "V!"           => \$print_stderr,
+    "before-arg=s" => \@before_arg,
+    "after-arg=s"  => \@after_arg,
+    "after-cmd=s"  => \@after_cmd,
+    "help!"        => sub { usage(0); },
+);
+
+# to not slurp options from the command
+Getopt::Long::Configure('require_order');
+
+GetOptions(@options) || usage(1);
+
+my $fm;
+my $tempdir;
+my $next_id = 0;
+if(defined($parallel_limit))
+{
+    my %args;
+
+    if($parallel_limit != -1)
+    {
+        $args{'limit'} = $parallel_limit;
+    }
+
+    $args{'on_result'} = \&on_result;
+    $args{'before_fork'} = \&before_fork;
+
+    $fm = FringeUtils::Amling::ForkManager->new(%args);
+    $tempdir = tempdir('CLEANUP' => 1);
+}
+
+my @command = @ARGV;
+@ARGV = ();
+
+my @args = ();
+while(my $line = <>)
+{
+    chomp $line;
+    push @args, $line;
+    check_flush();
+}
+if(@args)
+{
+    force_flush();
+}
+
+if(defined($fm))
+{
+    $fm->wait_all();
+}
+
+sub check_flush
+{
+    if(defined($arg_limit))
+    {
+        if(@args == $arg_limit)
+        {
+            force_flush();
+        }
+    }
+    else
+    {
+        my $sz = 0;
+        for my $e (@{build_command()})
+        {
+            $sz += length($e);
+        }
+        # TODO: configurable
+        if($sz > 10000)
+        {
+            force_flush()
+        }
+    }
+}
+
+sub force_flush
+{
+    my $args = build_command();
+    if(defined($fm))
+    {
+        $fm->add_job($next_id++, \&child, [$args]);
+    }
+    else
+    {
+        note("Starting", $args);
+        system(@$args);
+        note("Finished", $args);
+    }
+    @args = ();
+}
+
+sub build_command
+{
+    return [@command, (map { @before_arg, $_, @after_arg } @args), @after_cmd];
+}
+
+sub note
+{
+    my $header = shift;
+    my $args = shift;
+
+    if($print_stdout)
+    {
+        print "$header: " . join(" ", @$args) . "\n";
+    }
+    if($print_stderr)
+    {
+        print STDERR "$header: " . join(" ", @$args) . "\n";
+    }
+}
+
+sub child
+{
+    my $id = shift;
+    my $args = shift;
+
+    open(STDOUT, ">", "$tempdir/$id.out");
+    open(STDERR, ">", "$tempdir/$id.err");
+
+    system(@$args);
+
+    return $args;
+}
+
+sub before_fork
+{
+    my $fm = shift;
+    my $id = shift;
+    my $subref = shift;
+    my $args = shift;
+
+    note("Starting child", $args);
+}
+
+sub on_result
+{
+    my $fm = shift;
+    my $id = shift;
+    my $args = shift;
+
+    note("Outputting", $args);
+
+    {
+        my $fh;
+        if(open($fh, "<", "$tempdir/$id.out"))
+        {
+            while(my $line = <$fh>)
+            {
+                print $line;
+            }
+            close($fh);
+        }
+
+        unlink("$tempdir/$id.out");
+    }
+
+    {
+        my $fh;
+        if(open($fh, "<", "$tempdir/$id.err"))
+        {
+            while(my $line = <$fh>)
+            {
+                print STDERR $line;
+            }
+            close($fh);
+        }
+
+        unlink("$tempdir/$id.err");
+    }
+
+    note("Finished", $args);
+}
+
+sub usage
+{
+    my $ec = shift;
+
+    print <<EOF;
+Usage: $0 <options> <command>
+   {-j | --parallel} <int>   Run this many executions in parallel.
+   -n                        Run exactly this many commands in each execution.
+   -v                        Print sentinels to STDOUT.
+   -V                        Print sentinels to STDERR.
+   --before-arg <str>        Add this extra argument before every argument read from STDIN.
+   --after-arg <str>         Add this extra argument after every argument read from STDIN.
+   --after-cmd <str>         Add this extra argument on the end of every command.
+   --help                    Print this help.
+EOF
+
+    exit $ec;
+}
