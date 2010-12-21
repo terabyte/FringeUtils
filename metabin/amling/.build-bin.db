@@ -1,5 +1,11 @@
 build-bin:
-    SHORT:bb
 
 xargs2:
-    SHORT:x2
+
+password-generator:
+
+line-set-and:
+
+line-set-sub:
+
+line-venn-dia:
