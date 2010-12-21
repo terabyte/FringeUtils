@@ -1,0 +1,20 @@
+Welcome to fringeutils, like coreutils only with terrifying circus imagery.
+
+Using fringeutils?  Get libs/ in your PERLLIB and run metabin/amling/build-bin
+to build your very own fringe bin.  A good sample set of directives for
+build-bin:
+
+> # default rule, dump canonical aliases under the default format
+> # (fringe-AUTHOR-ALIAS) so scripts can call each other safely
+> .
+> 
+> # For authors you know/like and just want to get all their stuff under their
+> # provided canonical names
+> AUTHOR:<author>,FORMAT:ALIAS
+> 
+> # For yourself, grab all aliases, always
+> AUTHOR:<you>,FORMAT:ALIAS,TYPE:*
+
+Contributing?  Dump your stuff in libs/FringeUtils/<Author>/ and
+metabin/<author>/.  Write metabin/<author>/.build-bin.db.  Call back and forth
+only with names like fringe-<author>-<script> so it will work for others.
