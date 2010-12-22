@@ -1,0 +1,168 @@
+#!/usr/bin/perl
+
+# Copyright (C) 2010   Keith Amling, keith.amling@gmail.com
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+$| = 1;
+
+use strict;
+use warnings;
+
+use Fcntl (':mode');
+use Getopt::Long;
+
+my $thresh = 256 * 1024 * 1024;
+my $human_readable = 0;
+
+my @options =
+(
+    "t|thresh=s"   => \$thresh,
+    "h!"           => \$human_readable,
+    "help!"        => sub { usage(0); },
+);
+
+GetOptions(@options) || usage(1);
+
+my %scale =
+(
+    '' => 1,
+    'k' => 1024,
+    'm' => 1024 * 1024,
+    'g' => 1024 * 1024 * 1024,
+    't' => 1024 * 1024 * 1024 * 1024,
+);
+if($thresh =~ /^([0-9.]+)([kmgt]?)b?$/i)
+{
+    my $mantissa = $1;
+    my $scale = lc($2);
+    $thresh = $mantissa * $scale{$scale};
+}
+else
+{
+    die "Could not parse threshhold: $thresh";
+}
+
+my $ttl = 0;
+for my $arg (@ARGV)
+{
+    $ttl += srch($arg);
+}
+if(@ARGV > 1)
+{
+    note("total", $ttl);
+}
+
+sub srch
+{
+    my ($path) = @_;
+
+    my @stat = lstat($path);
+    if(!@stat)
+    {
+        warn "Could not stat $path: $!";
+        return 0;
+    }
+
+    my $sz = $stat[7];
+    my $block = $stat[11];
+    if(defined($block))
+    {
+        # yuck, totally bogus
+        $sz = $block * int(($sz + $block - 1) / $block);
+    }
+
+    if(S_ISDIR($stat[2]))
+    {
+        if(!opendir(my $fh, $path))
+        {
+            warn "Cannot opendir $path: $!";
+        }
+        else
+        {
+            my @e;
+            while(my $e = readdir($fh))
+            {
+                if($e eq "." || $e eq "..")
+                {
+                    next;
+                }
+                push @e, $e;
+            }
+            if(!closedir($fh))
+            {
+                warn "Cannot closedir $path: $!";
+            }
+
+            for my $e (sort(@e))
+            {
+                $sz += srch("$path/$e");
+            }
+        }
+    }
+
+    note($path, $sz);
+
+    return $sz;
+}
+
+sub note
+{
+    my $path = shift;
+    my $sz = shift;
+
+    if($sz > $thresh)
+    {
+        print "$path: " . format_size($sz) . "\n";
+    }
+}
+
+sub format_size
+{
+    my $size = shift;
+
+    if(!$human_readable)
+    {
+        return $size;
+    }
+
+    my $scale = 0;
+    my @scale = ("", "K", "M", "G", "T");
+    while($scale + 1 < @scale && $size >= 1024)
+    {
+        ++$scale;
+        $size /= 1024;
+    }
+
+    # stupid printf, I can't get what I want from it
+    my $mantissa = sprintf("%0.2f", $size);
+    $mantissa =~ s/0*$//;
+    $mantissa =~ s/\.$//;
+
+    return $mantissa . $scale[$scale];
+}
+
+sub usage
+{
+    my $ec = shift;
+
+    print <<EOF;
+Usage: $0 <options>
+   -t | --thresh <limit>   Output tree parts at least this large.
+   -h                      Output sizes in human readable format.
+   --help                  Print this help.
+EOF
+
+    exit $ec;
+}
