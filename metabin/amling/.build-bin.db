@@ -1,11 +1,7 @@
 build-bin:
-
-xargs2:
-
-password-generator:
-
+disk-hogs:
 line-set-and:
-
 line-set-sub:
-
 line-venn-dia:
+password-generator:
+xargs2:
