@@ -1,0 +1,54 @@
+#!/usr/bin/perl
+
+$| = 1;
+
+use strict;
+use warnings;
+
+use Getopt::Long;
+
+my $multiple;
+my $trim;
+
+my @options =
+(
+    "multiple|m!" => \$multiple,
+    "trim|t!" => \$trim,
+    "help" => sub { usage(0); },
+);
+
+GetOptions(@options) || usage(1);
+
+my $register = shift || '.';
+
+my @l;
+while(<>)
+{
+    chomp;
+    if($trim)
+    {
+        s/^\s*//;
+        s/\s*$//;
+    }
+    push @l, $_;
+}
+
+if(@l != 1 && !$multiple)
+{
+    die "Got " . scalar(@l) . " lines without --multiple!";
+}
+
+(system('screen', '-X', 'register', $register, join("\n", @l)) == 0) || die "Cannot set register $register: $!";
+
+sub usage
+{
+    my $ec = shift;
+
+    print <<EOF;
+Usage: $0 <options>
+   --multiple                         Allow more or less than 1 line.
+   --help                             Print this help.
+EOF
+
+    exit $ec;
+}
