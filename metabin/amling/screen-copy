@@ -47,6 +47,7 @@ sub usage
     print <<EOF;
 Usage: $0 <options>
    --multiple                         Allow more or less than 1 line.
+   --trim                             Trim whitespace from front and end of lines.
    --help                             Print this help.
 EOF
 
