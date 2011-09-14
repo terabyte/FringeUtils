@@ -1,0 +1,134 @@
+#!/usr/bin/perl
+
+# Copyright (C) 2010   Keith Amling, keith.amling@gmail.com
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+$| = 1;
+
+use strict;
+use warnings;
+
+# TODO: test!
+# TODO: useless imports!
+
+my $prefix = shift || die;
+my @files = @ARGV;
+
+my @warn;
+my %defined;
+my @file_data;
+for my $file (@files)
+{
+    open(my $fh, '<', $file) || die "Cannot open $file: $!";
+    my $lineno = 1;
+    my $package = undef;
+    my %imported;
+    my @referenced;
+    while(my $line = <$fh>)
+    {
+        chomp $line;
+
+        if(0)
+        {
+        }
+        elsif($line =~ /^\s*package\s+([A-Z][a-zA-Z0-9]*(?:::[A-Z][a-zA-Z0-9]*)+)\s*;\s*$/)
+        {
+            $package = $1;
+        }
+        elsif($line =~ /^#!/)
+        {
+            $package = '';
+        }
+        elsif($line =~ /^\s*use\s+(\Q$prefix\E(?:::[A-Z][a-zA-Z0-9]*)+)\s*;\s*$/)
+        {
+            $imported{$1} = $lineno;
+        }
+        elsif($line =~ /^\s*sub\s+([_a-zA-Z][_a-zA-Z0-9]*)/)
+        {
+            my $sub = $1;
+            if(!defined($package))
+            {
+                push @warn, [$file, $lineno, "Sub $sub defined outside of package"];
+            }
+            elsif($package ne '')
+            {
+                ($defined{$package} ||= {})->{$sub} = 1;
+            }
+        }
+        else
+        {
+            while($line =~ /([\$\@%]?)(\Q$prefix\E(?:::[A-Z][a-zA-Z0-9]*)+)(?:(?:::|->)([_a-z][_a-zA-Z0-9]*))?/g)
+            {
+                my $sigil = $1;
+                my $target_package = $2;
+                my $symbol = $3;
+
+                if(defined($sigil))
+                {
+                    $symbol = undef;
+                }
+                if(!defined($symbol))
+                {
+                    $symbol = '';
+                }
+
+                push @referenced, [$lineno, $target_package, $symbol];
+            }
+        }
+
+        ++$lineno;
+    }
+    close($fh) || die "Cannot close $file: $!";
+
+    push @file_data, [$file, \%imported, \@referenced];
+}
+
+for my $file_data (@file_data)
+{
+    my ($file, $imported, $referenced) = @$file_data;
+
+    my %unreferenced = %$imported;
+
+    for my $reference (@$referenced)
+    {
+        my ($lineno, $target_package, $symbol) = @$reference;
+
+        delete $unreferenced{$target_package};
+
+        if(!defined($imported->{$target_package}))
+        {
+            push @warn, [$file, $lineno, "$target_package referenced but not used"];
+        }
+        elsif($symbol ne '' && !(($defined{$target_package} || {})->{$symbol}))
+        {
+            push @warn, [$file, $lineno, "Sub $target_package" . "::$symbol referenced but no such sub defined"];
+        }
+    }
+
+    for my $target_package (keys(%unreferenced))
+    {
+        my $lineno = $unreferenced{$target_package};
+        push @warn, [$file, $lineno, "Unused import of $target_package"];
+    }
+}
+
+@warn = sort { ($a->[0] cmp $b->[0]) || ($a->[1] <=> $b->[1]) || ($a->[2] cmp $b->[2]) } @warn;
+
+for my $warn (@warn)
+{
+    my ($file, $lineno, $msg) = @$warn;
+
+    print "$file:$lineno:$msg\n";
+}
