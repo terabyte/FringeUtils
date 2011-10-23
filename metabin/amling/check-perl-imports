@@ -21,7 +21,7 @@ use strict;
 use warnings;
 
 # TODO: test!
-# TODO: useless imports!
+# TODO: understand some amount of exporter madness(?)
 
 my $prefix = shift || die;
 my @files = @ARGV;
