@@ -1,0 +1,96 @@
+#!/usr/bin/perl
+
+# Copyright (C) 2010   Keith Amling, keith.amling@gmail.com
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+$| = 1;
+
+use strict;
+use warnings;
+
+my $target = shift || die;
+
+my @lines;
+my $mindent = undef;
+while(<>)
+{
+    my $indent;
+    for($indent = 0; $indent < length($_) && substr($_, $indent, 1) eq " "; ++$indent)
+    {
+    }
+
+    if($indent > 0 && (!defined($mindent) || $indent < $mindent))
+    {
+        $mindent = $indent;
+    }
+    push @lines, [$indent, $_];
+}
+continue
+{
+    # unfucking believable, does not do what "eof()" does, see `perldoc -f eof`
+    # and despair
+    if(eof)
+    {
+        my $rewrite = undef;
+
+        if(defined($mindent))
+        {
+            if($mindent >= 2 && $mindent <= 4)
+            {
+                my $fail = 0;
+                for(my $i = 0; $i < @lines; ++$i)
+                {
+                    my ($indent, $line) = @{$lines[$i]};
+                    if($indent % $mindent)
+                    {
+                        warn "$ARGV:" . ($i + 1) . ":Found alien indent $indent (not divisible by $mindent)!  Skipping...";
+                        $fail = 1;
+                    }
+                }
+
+                if(!$fail)
+                {
+                    $rewrite = $mindent;
+                }
+            }
+            else
+            {
+                warn "$ARGV:Minimum indent is $mindent!  Skipping...";
+            }
+        }
+        else
+        {
+            warn "$ARGV:Minimum indent is undef?!  Skipping...";
+        }
+
+        for my $pair (@lines)
+        {
+            my ($indent, $line) = @$pair;
+
+            if(defined($rewrite))
+            {
+                my $count = int($indent / $rewrite);
+                print ((" " x ($target * $count)) . substr($line, $indent));
+            }
+            else
+            {
+                print $line;
+            }
+        }
+
+        @lines = ();
+        $mindent = undef;
+    }
+}
