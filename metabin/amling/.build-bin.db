@@ -6,4 +6,5 @@ line-venn-dia:
 password-generator:
 xargs2:
 screen-copy:
+screen-shift:
 check-perl-imports:

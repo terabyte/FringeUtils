@@ -1,0 +1,36 @@
+#!/usr/bin/perl
+
+$| = 1;
+
+use strict;
+use warnings;
+
+my $start = shift;
+my $end = shift;
+my $delta = shift;
+
+my @i;
+if($delta > 0)
+{
+    for(my $i = $end - 1; $i >= $start; --$i)
+    {
+        push @i, $i;
+    }
+}
+elsif($delta < 0)
+{
+    for(my $i = $start; $i < $end; ++$i)
+    {
+        push @i, $i;
+    }
+}
+else
+{
+    die;
+}
+
+for my $i (@i)
+{
+    my $i2 = $i + $delta;
+    (system('screen', '-X', '-p', $i, 'number', $i2) == 0) || die "Cannot shift $i -> $i2: $!";
+}
