@@ -20,6 +20,11 @@ while(<>)
     my $n = $r->{'n'};
     my $line = $r->{'line'};
 
+    if(@records && $i < $records[@records - 1]->[1])
+    {
+        @records = ();
+    }
+
     my $r1 = [$t, $i];
     push @records, $r1;
 
