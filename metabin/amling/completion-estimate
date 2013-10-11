@@ -25,19 +25,29 @@ while(<>)
         @records = ();
     }
 
-    my $r1 = [$t, $i];
-    push @records, $r1;
+    push @records, [$t, $i];
 
-    for(my $size = 10; $size + 1 < @records; $size *= 10)
+    for(my $size = 10; $size < @records; $size *= 10)
     {
-        my $r0 = $records[@records - $size - 1];
-        my $dt = $r1->[0] - $r0->[0];
-        my $di = $r1->[1] - $r0->[1];
-        if($di > 0)
+        my $sum_x = 0;
+        my $sum_x2 = 0;
+        my $sum_xy = 0;
+        my $sum_y = 0;
+        for(my $j = 0; $j < $size; ++$j)
         {
-            my $est = $t + $dt / $di * ($n - $i);
-            $line = "[$size:" . strftime("%Y/%m/%d %H:%M:%S", localtime($est)) . "] $line";
+            my $r = $records[@records - 1 - $j];
+            my $x = $r->[0] - $t;
+            my $y = $r->[1];
+            $sum_x += $x;
+            $sum_x2 += $x ** 2;
+            $sum_y += $y;
+            $sum_xy += $x * $y;
         }
+        my $slope = ($size * $sum_xy - $sum_x * $sum_y) / ($size * $sum_x2 - $sum_x ** 2);
+        my $intercept = $sum_y / $size - $slope * $sum_x / $size;
+        my $est = $t + ($n - $intercept) / $slope;
+
+        $line = "[$size:" . strftime("%Y/%m/%d %H:%M:%S", localtime($est)) . "] $line";
     }
 
     print "$line\n";
