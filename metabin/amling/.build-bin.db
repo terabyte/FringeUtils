@@ -8,3 +8,4 @@ xargs2:
 screen-copy:
 screen-shift:
 check-perl-imports:
+completion-estimate:

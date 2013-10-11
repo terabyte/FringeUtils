@@ -1,0 +1,39 @@
+#!/usr/bin/perl
+
+$| = 1;
+
+use strict;
+use warnings;
+
+use JSON;
+use POSIX ('strftime');
+
+my $json = JSON->new();
+
+my @records;
+while(<>)
+{
+    my $t = time();
+    my $r = $json->decode($_);
+
+    my $i = $r->{'i'};
+    my $n = $r->{'n'};
+    my $line = $r->{'line'};
+
+    my $r1 = [$t, $i];
+    push @records, $r1;
+
+    for(my $size = 10; $size + 1 < @records; $size *= 10)
+    {
+        my $r0 = $records[@records - $size - 1];
+        my $dt = $r1->[0] - $r0->[0];
+        my $di = $r1->[1] - $r0->[1];
+        if($di > 0)
+        {
+            my $est = $t + $dt / $di * ($n - $i);
+            $line = "[$size:" . strftime("%Y/%m/%d %H:%M:%S", localtime($est)) . "] $line";
+        }
+    }
+
+    print "$line\n";
+}
