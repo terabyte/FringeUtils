@@ -1,12 +1,12 @@
 build-bin:
+check-perl-imports:
+completion-estimate:
 disk-hogs:
 line-set-and:
 line-set-sub:
 line-venn-dia:
 password-generator:
-xargs2:
+respace:
 screen-copy:
 screen-shift:
-check-perl-imports:
-respace:
-completion-estimate:
+xargs2:
