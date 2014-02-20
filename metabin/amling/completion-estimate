@@ -1,0 +1,54 @@
+#!/usr/bin/perl
+
+$| = 1;
+
+use strict;
+use warnings;
+
+use JSON;
+use POSIX ('strftime');
+
+my $json = JSON->new();
+
+my @records;
+while(<>)
+{
+    my $t = time();
+    my $r = $json->decode($_);
+
+    my $i = $r->{'i'};
+    my $n = $r->{'n'};
+    my $line = $r->{'line'};
+
+    if(@records && $i < $records[@records - 1]->[1])
+    {
+        @records = ();
+    }
+
+    push @records, [$t, $i];
+
+    for(my $size = 10; $size < @records; $size *= 10)
+    {
+        my $sum_x = 0;
+        my $sum_x2 = 0;
+        my $sum_xy = 0;
+        my $sum_y = 0;
+        for(my $j = 0; $j < $size; ++$j)
+        {
+            my $r = $records[@records - 1 - $j];
+            my $x = $r->[0] - $t;
+            my $y = $r->[1];
+            $sum_x += $x;
+            $sum_x2 += $x ** 2;
+            $sum_y += $y;
+            $sum_xy += $x * $y;
+        }
+        my $slope = ($size * $sum_xy - $sum_x * $sum_y) / ($size * $sum_x2 - $sum_x ** 2);
+        my $intercept = $sum_y / $size - $slope * $sum_x / $size;
+        my $est = $t + ($n - $intercept) / $slope;
+
+        $line = "[$size:" . strftime("%Y/%m/%d %H:%M:%S", localtime($est)) . "] $line";
+    }
+
+    print "$line\n";
+}
